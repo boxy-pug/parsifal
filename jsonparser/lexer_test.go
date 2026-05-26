@@ -5,110 +5,414 @@ import (
 	"testing"
 )
 
-func TestJsonLexer_SingleCharTokens(t *testing.T) {
-	input := strings.NewReader(`{[{}]}[]{:,:}`)
+type wantToken struct {
+	type_ tokenType
+	lit   string
+	line  int
+}
 
-	l := NewLexer(input)
+func assertTokens(t *testing.T, input string, wants []wantToken) {
+	t.Helper()
 
-	tests := []struct {
-		expectedType    tokenType
-		expectedLiteral string
-	}{
-		{LBRACE, "{"},
-		{LBRACKET, "["},
-		{LBRACE, "{"},
-		{RBRACE, "}"},
-		{RBRACKET, "]"},
-		{RBRACE, "}"},
-		{LBRACKET, "["},
-		{RBRACKET, "]"},
-		{LBRACE, "{"},
-		{COLON, ":"},
-		{COMMA, ","},
-		{COLON, ":"},
-		{RBRACE, "}"},
-		{EOF, ""},
-	}
+	l := NewLexer(strings.NewReader(input))
 
-	for i, tt := range tests {
+	for i, want := range wants {
 		tok := l.NextToken()
 
-		if tok.Type != tt.expectedType {
-			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q", i, tt.expectedType, tok.Type)
+		if tok.Type != want.type_ {
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q", i, want.type_, tok.Type)
 		}
-		if tok.Literal != tt.expectedLiteral {
-			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q", i, tt.expectedLiteral, tok.Literal)
+		if tok.Literal != want.lit {
+			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q", i, want.lit, tok.Literal)
+		}
+		if tok.Line != want.line {
+			t.Fatalf("tests[%d] - line wrong. expected=%d, got=%d", i, want.line, tok.Line)
+		}
+
+		if tok.Type == ILLEGAL {
+			break
 		}
 	}
 }
 
-func TestJsonLexer(t *testing.T) {
+func TestJsonLexer_BasicTokensAndLines(t *testing.T) {
+	input := `{
+	  "name": "Alice",
+	  "age": 30,
+	  "deleted": null
+}`
 
-	input := strings.NewReader(`{"name": "Alice", "age": 30, "active": true, "scores": [95, 82, 77], "address": {"city": "Portland", "zip": "97201"}, "nickname": "Ali\"ce", "balance": 99.95, "deleted": null}`)
+	assertTokens(t, input, []wantToken{
+		{type_: LBRACE, lit: "{", line: 1},
+		{type_: STRING, lit: "name", line: 2},
+		{type_: COLON, lit: ":", line: 2},
+		{type_: STRING, lit: "Alice", line: 2},
+		{type_: COMMA, lit: ",", line: 2},
+		{type_: STRING, lit: "age", line: 3},
+		{type_: COLON, lit: ":", line: 3},
+		{type_: NUMBER, lit: "30", line: 3},
+		{type_: COMMA, lit: ",", line: 3},
+		{type_: STRING, lit: "deleted", line: 4},
+		{type_: COLON, lit: ":", line: 4},
+		{type_: NULL, lit: "", line: 4},
+		{type_: RBRACE, lit: "}", line: 5},
+		{type_: EOF, lit: "", line: 5},
+	})
+}
 
-	l := NewLexer(input)
-
+func TestJsonLexer_IllegalToken(t *testing.T) {
 	tests := []struct {
-		expectedType    tokenType
-		expectedLiteral string
+		name  string
+		input string
+		want  []wantToken
 	}{
-		{LBRACE, "{"},
-		{STRING, "name"},
-		{COLON, ":"},
-		{STRING, "Alice"},
-		{COMMA, ","},
-		{STRING, "age"},
-		{COLON, ":"},
-		{NUMBER, "30"},
-		{COMMA, ","},
-		{STRING, "active"},
-		{COLON, ":"},
-		{BOOL, "true"},
-		{COMMA, ","},
-		{STRING, "scores"},
-		{COLON, ":"},
-		{LBRACKET, "["},
-		{NUMBER, "95"},
-		{COMMA, ","},
-		{NUMBER, "82"},
-		{COMMA, ","},
-		{NUMBER, "77"},
-		{RBRACKET, "]"},
-		{COMMA, ","},
-		{STRING, "address"},
-		{COLON, ":"},
-		{LBRACE, "{"},
-		{STRING, "city"},
-		{COLON, ":"},
-		{STRING, "Portland"},
-		{COMMA, ","},
-		{STRING, "zip"},
-		{COLON, ":"},
-		{STRING, "97201"},
-		{RBRACE, "}"},
-		{COMMA, ","},
-		{STRING, "nickname"},
-		{COLON, ":"},
-		{STRING, "Ali\"ce"},
-		{COMMA, ","},
-		{STRING, "balance"},
-		{COLON, ":"},
-		{NUMBER, "99.95"},
-		{COMMA, ","},
-		{STRING, "deleted"},
-		{COLON, ":"},
-		{NULL, ""},
-		{EOF, ""},
+		{
+			name:  "at sign",
+			input: `@`,
+			want: []wantToken{
+				{type_: ILLEGAL, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "question mark",
+			input: `?`,
+			want: []wantToken{
+				{type_: ILLEGAL, lit: "", line: 1},
+			},
+		},
 	}
 
-	for i, tt := range tests {
-		tok := l.NextToken()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
 
-		if tok.Type != tt.expectedType {
-			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q", i, tt.expectedType, tok.Type)
-		}
-		if tok.Literal != tt.expectedLiteral {
-			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q", i, tt.expectedLiteral, tok.Literal)
-		}
+func TestJsonLexer_StringEscapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []wantToken
+	}{
+		{
+			name:  "escaped quote",
+			input: `{"value": "quote\"here"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: `quote"here`, line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "backslash",
+			input: `{"value": "back\\slash"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: `back\slash`, line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "slash",
+			input: `{"value": "slash\/here"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "slash/here", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "newline",
+			input: "{\"value\": \"line1\\nline2\"}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "line1\nline2", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "tab",
+			input: "{\"value\": \"tab\\there\"}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "tab\there", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "carriage return",
+			input: "{\"value\": \"ret\\rurn\"}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "ret\rurn", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "backspace",
+			input: "{\"value\": \"back\\bpace\"}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "back\bpace", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "form feed",
+			input: "{\"value\": \"form\\ffeed\"}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "form\ffeed", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
+
+func TestJsonLexer_ValidNumbers(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []wantToken
+	}{
+		{name: "integer", input: `42`, want: []wantToken{{type_: NUMBER, lit: "42", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "negative", input: `-17`, want: []wantToken{{type_: NUMBER, lit: "-17", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "zero", input: `0`, want: []wantToken{{type_: NUMBER, lit: "0", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "float", input: `3.14159`, want: []wantToken{{type_: NUMBER, lit: "3.14159", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "negative float", input: `-0.5`, want: []wantToken{{type_: NUMBER, lit: "-0.5", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "small decimal", input: `0.001`, want: []wantToken{{type_: NUMBER, lit: "0.001", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "scientific positive", input: `1.5e10`, want: []wantToken{{type_: NUMBER, lit: "1.5e10", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "scientific negative", input: `2.99792458e-8`, want: []wantToken{{type_: NUMBER, lit: "2.99792458e-8", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "scientific upper e", input: `6.022E23`, want: []wantToken{{type_: NUMBER, lit: "6.022E23", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "large number", input: `9007199254740991`, want: []wantToken{{type_: NUMBER, lit: "9007199254740991", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "negative zero", input: `-0`, want: []wantToken{{type_: NUMBER, lit: "-0", line: 1}, {type_: EOF, lit: "", line: 1}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
+
+func TestJsonLexer_InvalidNumbers(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []wantToken
+	}{
+		{name: "leading zero", input: `042`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "leading decimal", input: `.5`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "trailing decimal", input: `5.`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "plus sign", input: `+42`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "hex", input: `0xFF`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "octal", input: `0o77`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "binary", input: `0b1010`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "nan", input: `NaN`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "infinity", input: `Infinity`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "negative infinity", input: `-Infinity`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "quoted number", input: `"42"`, want: []wantToken{{type_: STRING, lit: "42", line: 1}, {type_: EOF, lit: "", line: 1}}},
+		{name: "underscores", input: `1_000_000`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
+
+func TestJsonLexer_InvalidStrings(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []wantToken
+	}{
+		{
+			name:  "unknown escape",
+			input: `{"value": "bad\qescape"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1},
+			},
+		},
+		{
+			name: "raw newline",
+			input: `{"value": "line1
+line2"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "value", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
+
+// Unicode Escape Sequences
+//
+// The \uXXXX syntax lets you include any Unicode character using its four-digit hexadecimal code point:
+//
+// {
+//   "cafe": "Caf\u00E9",
+//   "degree": "72\u00B0F",
+//   "copyright": "\u00A9 2025",
+//   "yen": "\u00A5500",
+//   "greek": "\u03B1\u03B2\u03B3",
+//   "checkmark": "\u2713 Complete"
+// }
+//
+// Characters outside the Basic Multilingual Plane (like many emoji) require a surrogate pair — two \uXXXX sequences. For example, the grinning face emoji (U+1F600) is encoded as \uD83D\uDE00.
+// Characters That Don't Need Escaping
+//
+// Most printable Unicode characters can appear directly in JSON strings without escaping. You can include accented letters, CJK characters, and even emoji directly:
+//
+// {
+//   "french": "Crème brûlée",
+//   "japanese": "東京タワー",
+//   "emoji": "Hello 👋 World 🌍",
+//   "math": "π ≈ 3.14159"
+// }
+
+func TestJsonLexer_UnicodeStrings(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []wantToken
+	}{
+		{
+			name:  "unicode cafe",
+			input: `{"cafe": "Caf\u00E9"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "cafe", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "Café", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "unicode degree",
+			input: `{"degree": "72\u00B0F"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "degree", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "72°F", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "unicode copyright",
+			input: `{"copyright": "\u00A9 2025"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "copyright", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "© 2025", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "unicode greek",
+			input: `{"greek": "\u03B1\u03B2\u03B3"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "greek", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "αβγ", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "surrogate pair emoji",
+			input: `{"emoji": "Hello \uD83D\uDE00"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "emoji", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "Hello 😀", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "direct unicode",
+			input: `{"french": "Crème brûlée", "japanese": "東京タワー"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "french", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "Crème brûlée", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: STRING, lit: "japanese", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "東京タワー", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "direct emoji",
+			input: `{"emoji": "Hello 👋 World 🌍"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "emoji", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "Hello 👋 World 🌍", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
 	}
 }
