@@ -33,7 +33,7 @@ func NewLexer(input io.Reader) *Lexer {
 func (l *Lexer) NextToken() token {
 	var tok token
 
-	// skip/ignore whitespace, but increment linecount on '/n'
+	// skip/ignore whitespace. calls ReadRune helper which increments line count if ch == '\n'
 	l.skipWhitespace()
 
 	switch l.ch {
@@ -120,26 +120,27 @@ func (l *Lexer) readString() (string, error) {
 		if l.ch == '\n' {
 			return "", fmt.Errorf("real newline in string")
 		}
+		// handle escape codes
 		if l.ch == '\\' {
 			l.readRune() // read one more to see what is escaped
 			switch l.ch {
-			case '"':
+			case '"': // escaped double quote
 				res = append(res, l.ch)
-			case '\\':
+			case '\\': // escaped backslash
 				res = append(res, l.ch)
-			case '/':
+			case '/': // escaped forward slash
 				res = append(res, l.ch)
-			case 'n':
+			case 'n': // escpaed newline
 				res = append(res, '\n')
-			case 't':
+			case 't': // tab
 				res = append(res, '\t')
-			case 'r':
+			case 'r': // carriage return
 				res = append(res, '\r')
-			case 'b':
+			case 'b': // backspace
 				res = append(res, '\b')
 			case 'f':
 				res = append(res, '\f')
-			case 'u':
+			case 'u': // unicode utf16 code point
 				code, err := l.readFourHexDigits()
 				if err != nil {
 					return "", fmt.Errorf("invalid unicode string")
@@ -160,7 +161,6 @@ func (l *Lexer) readString() (string, error) {
 		}
 		l.readRune()
 	}
-
 	return string(res), nil
 }
 
