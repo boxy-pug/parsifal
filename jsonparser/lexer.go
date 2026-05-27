@@ -2,10 +2,19 @@ package jsonparser
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"unicode"
+)
+
+var (
+	ErrInvalidNumber     = errors.New("invalid number")
+	ErrInvalidString     = errors.New("invalid string")
+	ErrInvalidIdentifier = errors.New("invalid identifier")
+	ErrTrailingComma     = errors.New("illegal trailing comma")
+	ErrUnknown           = errors.New("unknown error")
 )
 
 type Lexer struct {
@@ -15,6 +24,7 @@ type Lexer struct {
 	ch           rune // current rune
 	line         int
 	lastRune     rune
+	lastErr      error
 }
 
 // NewLexer wraps input in bufio.Reader for rune level reading
@@ -42,6 +52,7 @@ func (l *Lexer) NextToken() token {
 	case '}':
 		if l.lastRune == ',' {
 			tok = newToken(ILLEGAL, "", l.line)
+			l.lastErr = ErrTrailingComma
 			break
 		}
 		tok = newToken(RBRACE, string(l.ch), l.line)
@@ -50,6 +61,7 @@ func (l *Lexer) NextToken() token {
 	case ']':
 		if l.lastRune == ',' {
 			tok = newToken(ILLEGAL, "", l.line)
+			l.lastErr = ErrTrailingComma
 			break
 		}
 		tok = newToken(RBRACKET, string(l.ch), l.line)
@@ -63,6 +75,7 @@ func (l *Lexer) NextToken() token {
 		literal, err := l.readString()
 		if err != nil {
 			tok = newToken(ILLEGAL, "", l.line)
+			l.lastErr = fmt.Errorf("%w: %v", ErrInvalidString, err)
 			break
 		}
 		tok = newToken(STRING, literal, l.line)
@@ -75,18 +88,21 @@ func (l *Lexer) NextToken() token {
 			tok = newToken(NULL, "", l.line)
 		default:
 			tok = newToken(ILLEGAL, "", l.line)
+			l.lastErr = ErrInvalidIdentifier
 		}
 	default:
 		// Handle numbers
 		if isDigit(l.ch) || l.ch == '-' {
-			literal := l.readNumber()
-			if literal == "" {
+			number, err := l.readNumber()
+			if err != nil {
 				tok = newToken(ILLEGAL, "", l.line)
+				l.lastErr = fmt.Errorf("%w: %v", ErrInvalidNumber, err)
 				break
 			}
-			tok = newToken(NUMBER, literal, l.line)
+			tok = newToken(NUMBER, number, l.line)
 		} else {
 			tok = newToken(ILLEGAL, "", l.line)
+			l.lastErr = ErrUnknown
 		}
 	}
 	l.lastRune = l.ch
@@ -164,7 +180,7 @@ func (l *Lexer) readString() (string, error) {
 	return string(res), nil
 }
 
-func (l *Lexer) readNumber() string {
+func (l *Lexer) readNumber() (string, error) {
 	var res []rune
 
 	// if first ch is - that's ok, a negative number
@@ -176,7 +192,7 @@ func (l *Lexer) readNumber() string {
 	// if 1st ch is 0 and it's followed by a number , thats illegal
 	// or if first char is '.'
 	if (l.ch == '0' && isDigit(l.peekRune())) || l.ch == '.' {
-		return ""
+		return "", fmt.Errorf("leading 0 or . in number")
 	}
 
 	for {
@@ -197,15 +213,14 @@ func (l *Lexer) readNumber() string {
 		case l.ch == '}' || l.ch == ']' || l.ch == ',' || l.ch == ' ' || l.ch == '\n' || l.peekRune() == 0:
 			// number is not allowed to end with a '.'
 			if res[len(res)-1] == '.' {
-				return ""
+				return "", fmt.Errorf("trailing . in number")
 			}
 			// when exiting loop its bcs l.ch is something like
 			// }, ] or , or eof – so we need to unread this rune to handle it properly later
 			l.unreadRune()
-			return string(res)
+			return string(res), nil
 		default:
-			return ""
-
+			return "", fmt.Errorf("unknown number error")
 		}
 	}
 }

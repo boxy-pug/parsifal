@@ -1,6 +1,7 @@
 package jsonparser
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -9,6 +10,7 @@ type wantToken struct {
 	type_ tokenType
 	lit   string
 	line  int
+	err   error
 }
 
 func assertTokens(t *testing.T, input string, wants []wantToken) {
@@ -27,6 +29,11 @@ func assertTokens(t *testing.T, input string, wants []wantToken) {
 		}
 		if tok.Line != want.line {
 			t.Fatalf("tests[%d] - line wrong. expected=%d, got=%d", i, want.line, tok.Line)
+		}
+		if tok.Type == ILLEGAL && want.err != nil {
+			if !errors.Is(l.lastErr, want.err) {
+				t.Fatalf("tests[%d] - error wrong. expected=%v, got=%v", i, want.err, l.lastErr)
+			}
 		}
 
 		if tok.Type == ILLEGAL {
@@ -70,14 +77,14 @@ func TestJsonLexer_IllegalToken(t *testing.T) {
 			name:  "at sign",
 			input: `@`,
 			want: []wantToken{
-				{type_: ILLEGAL, lit: "", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1, err: ErrUnknown},
 			},
 		},
 		{
 			name:  "question mark",
 			input: `?`,
 			want: []wantToken{
-				{type_: ILLEGAL, lit: "", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1, err: ErrUnknown},
 			},
 		},
 	}
@@ -232,18 +239,18 @@ func TestJsonLexer_InvalidNumbers(t *testing.T) {
 		input string
 		want  []wantToken
 	}{
-		{name: "leading zero", input: `042`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "leading decimal", input: `.5`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "trailing decimal", input: `5.`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "plus sign", input: `+42`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "hex", input: `0xFF`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "octal", input: `0o77`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "binary", input: `0b1010`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "nan", input: `NaN`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "infinity", input: `Infinity`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
-		{name: "negative infinity", input: `-Infinity`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "leading zero", input: `042`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
+		{name: "leading decimal", input: `.5`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrUnknown}}},
+		{name: "trailing decimal", input: `5.`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
+		{name: "plus sign", input: `+42`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrUnknown}}},
+		{name: "hex", input: `0xFF`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
+		{name: "octal", input: `0o77`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
+		{name: "binary", input: `0b1010`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
+		{name: "nan", input: `NaN`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrUnknown}}},
+		{name: "infinity", input: `Infinity`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrUnknown}}},
+		{name: "negative infinity", input: `-Infinity`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
 		{name: "quoted number", input: `"42"`, want: []wantToken{{type_: STRING, lit: "42", line: 1}, {type_: EOF, lit: "", line: 1}}},
-		{name: "underscores", input: `1_000_000`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1}}},
+		{name: "underscores", input: `1_000_000`, want: []wantToken{{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidNumber}}},
 	}
 
 	for _, tt := range tests {
@@ -266,7 +273,7 @@ func TestJsonLexer_InvalidStrings(t *testing.T) {
 				{type_: LBRACE, lit: "{", line: 1},
 				{type_: STRING, lit: "value", line: 1},
 				{type_: COLON, lit: ":", line: 1},
-				{type_: ILLEGAL, lit: "", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1, err: ErrInvalidString},
 			},
 		},
 		{
@@ -277,7 +284,7 @@ line2"}`,
 				{type_: LBRACE, lit: "{", line: 1},
 				{type_: STRING, lit: "value", line: 1},
 				{type_: COLON, lit: ":", line: 1},
-				{type_: ILLEGAL, lit: "", line: 2},
+				{type_: ILLEGAL, lit: "", line: 2, err: ErrInvalidString},
 			},
 		},
 	}
@@ -579,7 +586,7 @@ func TestJsonLexer_EdgeCases(t *testing.T) {
 				{type_: COLON, lit: ":", line: 1},
 				{type_: NUMBER, lit: "1", line: 1},
 				{type_: COMMA, lit: ",", line: 1},
-				{type_: ILLEGAL, lit: "", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1, err: ErrTrailingComma},
 			},
 		},
 		{
