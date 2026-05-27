@@ -1,3 +1,6 @@
+// Package jsonparser implements a hand-written recursive-descent JSON parser.
+// It has a lexer that tokenizes JSON input and a parser that produces
+// an abstract syntax tree.
 package jsonparser
 
 type tokenType string

@@ -2,35 +2,20 @@ package jsonparser
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"unicode"
 )
 
-var (
-	ErrInvalidNumber      = errors.New("invalid number")
-	ErrInvalidString      = errors.New("invalid string")
-	ErrInvalidIdentifier  = errors.New("invalid identifier")
-	ErrTrailingComma      = errors.New("illegal trailing comma")
-	ErrUnknown            = errors.New("unknown error")
-	ErrMissingKey         = errors.New("missing string key in object")
-	ErrInvalidObjectValue = errors.New("invalid value in object")
-	ErrMissingColon       = errors.New("missing colon after key in object")
-	ErrInvalidArray       = errors.New("invalid array")
-	ErrInvalidBool        = errors.New("invalid bool")
-	ErrUnexpectedToken    = errors.New("unexpected token")
-)
-
 type Lexer struct {
 	reader       *bufio.Reader
-	position     int  // byte offset of ch
-	readPosition int  // points to the byte offset for next rune
-	ch           rune // current rune
-	line         int
-	lastRune     rune
-	lastErr      error
+	position     int   // byte offset of ch
+	readPosition int   // points to the byte offset for next rune
+	ch           rune  // current rune
+	line         int   // line count
+	lastRune     rune  // the last rune read before current
+	lastErr      error // last error, filled in when encountering ILLEGAL
 }
 
 // NewLexer wraps input in bufio.Reader for rune level reading

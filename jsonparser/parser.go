@@ -6,14 +6,14 @@ import (
 )
 
 // Parser transforms a stream of tokens from the lexer to an AST.
-// Holds the lexer and curretn token being examined.
+// Holds the lexer and current token being examined.
 type Parser struct {
 	l   *Lexer
 	cur token
 }
 
 // NewParser creates parser from existing Lexer, calls next immediately
-// to load first token.
+// to load first token into p.cur.
 func NewParser(l *Lexer) *Parser {
 	p := &Parser{l: l}
 	p.next()
@@ -22,6 +22,7 @@ func NewParser(l *Lexer) *Parser {
 
 // Parse parses a single JSON value into a Node, then verifies that theres nothing left,
 // no trailing tokens. Returns root node or error. The public API entry point.
+// Calls parseValue once then insists on EOF.
 func (p *Parser) Parse() (Node, error) {
 	node, err := p.parseValue()
 	if err != nil {
@@ -39,29 +40,19 @@ func (p *Parser) next() {
 	p.cur = p.l.NextToken()
 }
 
-// expect checks if current token matches expected type. if yes, advance to next token
-// and return true. if not, return false and no advance
-func (p *Parser) expect(t tokenType) bool {
-	if p.cur.Type == t {
-		p.next()
-		return true
-	}
-	return false
-}
-
 // parseValue is the dispatcher, it looks at p.cur.Type and routes to the right parse func.
 // returns constructed node and error. The core of the recursive decent
 func (p *Parser) parseValue() (Node, error) {
 
-	//dispatch, switch statement based on p.
+	//dispatch, switch statement based on p.cur.Type
 	switch p.cur.Type {
 	case STRING:
 		return p.parseString()
 	case NUMBER:
 		return p.parseNumber()
-	case LBRACE:
+	case LBRACE: // beginning of an object
 		return p.parseObject()
-	case LBRACKET:
+	case LBRACKET: // beginning of an array
 		return p.parseArray()
 	case BOOL:
 		return p.parseBool()
@@ -74,12 +65,16 @@ func (p *Parser) parseValue() (Node, error) {
 	}
 }
 
+// parseString escapes and unicode is already decoded in lexer, so here we just
+// wrap literal in String, advance to next token and return the node
 func (p *Parser) parseString() (Node, error) {
 	node := String{Value: p.cur.Literal}
 	p.next()
 	return node, nil
 }
 
+// parseNumber converts current literal as float64 (err if strconv.ParseFloat() fails),
+// advances to next token and returns number node.
 func (p *Parser) parseNumber() (Node, error) {
 	number, err := strconv.ParseFloat(p.cur.Literal, 64)
 	if err != nil {
@@ -90,6 +85,8 @@ func (p *Parser) parseNumber() (Node, error) {
 	return node, nil
 }
 
+// parseObject reads key val pairs separated by colons, recursing into parseValue for
+// each value, handles commas and closing brace.
 func (p *Parser) parseObject() (Node, error) {
 	var obj Object
 	obj.Pairs = make(map[string]Node)
@@ -138,6 +135,7 @@ func (p *Parser) parseObject() (Node, error) {
 	}
 }
 
+// parseArray reads values recursively until closing bracket, handling commas.
 func (p *Parser) parseArray() (Node, error) {
 	var arr Array
 
@@ -164,11 +162,11 @@ func (p *Parser) parseArray() (Node, error) {
 			p.next()
 		default:
 			return nil, ErrInvalidArray
-
 		}
 	}
 }
 
+// parseBool checks current literal for true or false, returns bool node.
 func (p *Parser) parseBool() (Node, error) {
 	var b Bool
 
@@ -185,6 +183,7 @@ func (p *Parser) parseBool() (Node, error) {
 	return b, nil
 }
 
+// parseNull advances past null and returns emty null node
 func (p *Parser) parseNull() (Node, error) {
 	p.next()
 	return Null{}, nil
