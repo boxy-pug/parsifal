@@ -277,7 +277,7 @@ line2"}`,
 				{type_: LBRACE, lit: "{", line: 1},
 				{type_: STRING, lit: "value", line: 1},
 				{type_: COLON, lit: ":", line: 1},
-				{type_: ILLEGAL, lit: "", line: 1},
+				{type_: ILLEGAL, lit: "", line: 2},
 			},
 		},
 	}
@@ -406,6 +406,293 @@ func TestJsonLexer_UnicodeStrings(t *testing.T) {
 				{type_: STRING, lit: "Hello 👋 World 🌍", line: 1},
 				{type_: RBRACE, lit: "}", line: 1},
 				{type_: EOF, lit: "", line: 1},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
+
+func TestJsonLexer_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []wantToken
+	}{
+		{
+			name:  "empty object",
+			input: `{}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "empty array",
+			input: `[]`,
+			want: []wantToken{
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "empty string",
+			input: `{"key": ""}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "key", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "no whitespace at all",
+			input: `{"a":1,"b":true,"c":null}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "a", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: NUMBER, lit: "1", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: STRING, lit: "b", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: BOOL, lit: "true", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: STRING, lit: "c", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: NULL, lit: "", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "excessive whitespace",
+			input: "  \t  {  \n\n  \"x\"  \t :  \n  42  \n  }  \t\t",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "x", line: 3},
+				{type_: COLON, lit: ":", line: 3},
+				{type_: NUMBER, lit: "42", line: 4},
+				{type_: RBRACE, lit: "}", line: 5},
+				{type_: EOF, lit: "", line: 5},
+			},
+		},
+		{
+			name:  "deeply nested",
+			input: `{"a":{"b":{"c":[1,[2,{"d":3}]]}}}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "a", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "b", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "c", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: NUMBER, lit: "1", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: NUMBER, lit: "2", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "d", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: NUMBER, lit: "3", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "mixed whitespace types",
+			input: "{\r\n\t\"key\"\t:\r\n\t\"value\"\r\n}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "key", line: 2},
+				{type_: COLON, lit: ":", line: 2},
+				{type_: STRING, lit: "value", line: 3},
+				{type_: RBRACE, lit: "}", line: 4},
+				{type_: EOF, lit: "", line: 4},
+			},
+		},
+		{
+			name:  "just whitespace",
+			input: "   \t\n  ",
+			want: []wantToken{
+				{type_: EOF, lit: "", line: 2},
+			},
+		},
+		{
+			name:  "number zero",
+			input: `0`,
+			want: []wantToken{
+				{type_: NUMBER, lit: "0", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "negative number in array",
+			input: `[-1, -2, -3]`,
+			want: []wantToken{
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: NUMBER, lit: "-1", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: NUMBER, lit: "-2", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: NUMBER, lit: "-3", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "string with all escapes",
+			input: `{"x": "\"\\/\b\f\n\r\t"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "x", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "\"\\/\b\f\n\r\t", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "trailing comma (invalid)",
+			input: `{"a": 1,}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "a", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: NUMBER, lit: "1", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: ILLEGAL, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "bare number",
+			input: `42`,
+			want: []wantToken{
+				{type_: NUMBER, lit: "42", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "bare true",
+			input: `true`,
+			want: []wantToken{
+				{type_: BOOL, lit: "true", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "bare false",
+			input: `false`,
+			want: []wantToken{
+				{type_: BOOL, lit: "false", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "bare null",
+			input: `null`,
+			want: []wantToken{
+				{type_: NULL, lit: "", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "bare string",
+			input: `"hello"`,
+			want: []wantToken{
+				{type_: STRING, lit: "hello", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "consecutive braces and brackets",
+			input: `{}[]{}[]`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "array of mixed types",
+			input: `[1, "two", true, null, {"three": 3}]`,
+			want: []wantToken{
+				{type_: LBRACKET, lit: "[", line: 1},
+				{type_: NUMBER, lit: "1", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: STRING, lit: "two", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: BOOL, lit: "true", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: NULL, lit: "", line: 1},
+				{type_: COMMA, lit: ",", line: 1},
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "three", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: NUMBER, lit: "3", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: RBRACKET, lit: "]", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "unicode in key",
+			input: `{"café": "latte"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "café", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "latte", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "emoji in string value",
+			input: `{"status": "👍"}`,
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "status", line: 1},
+				{type_: COLON, lit: ":", line: 1},
+				{type_: STRING, lit: "👍", line: 1},
+				{type_: RBRACE, lit: "}", line: 1},
+				{type_: EOF, lit: "", line: 1},
+			},
+		},
+		{
+			name:  "multiple newlines between tokens",
+			input: "{\n\n\n\"x\"\n\n:\n\n1\n\n}",
+			want: []wantToken{
+				{type_: LBRACE, lit: "{", line: 1},
+				{type_: STRING, lit: "x", line: 4},
+				{type_: COLON, lit: ":", line: 6},
+				{type_: NUMBER, lit: "1", line: 8},
+				{type_: RBRACE, lit: "}", line: 10},
+				{type_: EOF, lit: "", line: 10},
 			},
 		},
 	}

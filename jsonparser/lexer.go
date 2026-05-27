@@ -14,6 +14,7 @@ type Lexer struct {
 	readPosition int  // points to the byte offset for next rune
 	ch           rune // current rune
 	line         int
+	lastRune     rune
 }
 
 // NewLexer wraps input in bufio.Reader for rune level reading
@@ -39,10 +40,18 @@ func (l *Lexer) NextToken() token {
 	case '{':
 		tok = newToken(LBRACE, string(l.ch), l.line)
 	case '}':
+		if l.lastRune == ',' {
+			tok = newToken(ILLEGAL, "", l.line)
+			break
+		}
 		tok = newToken(RBRACE, string(l.ch), l.line)
 	case '[':
 		tok = newToken(LBRACKET, string(l.ch), l.line)
 	case ']':
+		if l.lastRune == ',' {
+			tok = newToken(ILLEGAL, "", l.line)
+			break
+		}
 		tok = newToken(RBRACKET, string(l.ch), l.line)
 	case ',':
 		tok = newToken(COMMA, string(l.ch), l.line)
@@ -80,8 +89,7 @@ func (l *Lexer) NextToken() token {
 			tok = newToken(ILLEGAL, "", l.line)
 		}
 	}
-	// TODO
-	// fmt.Println(tok)
+	l.lastRune = l.ch
 	l.readRune()
 	return tok
 }
@@ -96,6 +104,9 @@ func (l *Lexer) readRune() {
 		return
 	}
 	l.ch = newRune
+	if l.ch == '\n' {
+		l.line++
+	}
 	l.position = l.readPosition
 	l.readPosition += byteWidth
 }
@@ -181,15 +192,16 @@ func (l *Lexer) readNumber() string {
 				res = append(res, l.ch)
 				l.readRune()
 			}
-		// These are the only ways to end a number, i guess? not sure...
-		case l.ch == '}' || l.ch == ']' || l.ch == ',' || l.ch == ' ' || l.peekRune() == 0:
+			// These are the only ways to end a number, i guess? not sure...
+			// maybe move the peek eof to it's own case?
+		case l.ch == '}' || l.ch == ']' || l.ch == ',' || l.ch == ' ' || l.ch == '\n' || l.peekRune() == 0:
 			// number is not allowed to end with a '.'
 			if res[len(res)-1] == '.' {
 				return ""
 			}
 			// when exiting loop its bcs l.ch is something like
 			// }, ] or , or eof – so we need to unread this rune to handle it properly later
-			l.reader.UnreadRune()
+			l.unreadRune()
 			return string(res)
 		default:
 			return ""
@@ -208,7 +220,7 @@ func (l *Lexer) readIdentifier() string {
 	}
 	// exiting loop when l.ch is not lowercase char
 	// we need to unread one rune to handle it properly
-	l.reader.UnreadRune()
+	l.unreadRune()
 	// TODO will this be a bug somehow?
 	return string(res)
 }
@@ -237,15 +249,20 @@ func (l *Lexer) readFourHexDigits() (rune, error) {
 
 // Helper funcs:
 
+func (l *Lexer) unreadRune() {
+	if l.ch == '\n' {
+		l.line--
+	}
+	l.reader.UnreadRune()
+
+}
+
 func isHighSurrogate(r rune) bool {
 	return r >= 0xD800 && r <= 0xDBFF
 }
 
 func (l *Lexer) skipWhitespace() {
 	for unicode.IsSpace(l.ch) {
-		if l.ch == '\n' {
-			l.line++
-		}
 		l.readRune()
 	}
 }
