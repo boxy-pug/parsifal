@@ -1,0 +1,26 @@
+{
+  "string": "hello world",
+  "empty_string": "",
+  "escaped": "line1\nline2\ttabbed",
+  "unicode": "Café 🌍",
+  "integer": 42,
+  "negative": -17,
+  "float": 3.14159,
+  "scientific": 6.022e23,
+  "zero": 0,
+  "true": true,
+  "false": false,
+  "null": null,
+  "empty_object": {},
+  "empty_array": [],
+  "numbers": [1, 2, 3, -4.5, 0],
+  "mixed": [1, "two", true, null, {"three": 3}],
+  "nested": {
+    "level1": {
+      "level2": [
+        {"deep": true},
+        "also deep"
+      ]
+    }
+  }
+}
