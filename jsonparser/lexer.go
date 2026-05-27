@@ -22,7 +22,7 @@ func NewLexer(input io.Reader) *Lexer {
 	l := &Lexer{
 		reader: bufio.NewReader(input),
 	}
-	l.readChar()
+	l.readRune()
 	l.line = 1
 	return l
 }
@@ -82,14 +82,14 @@ func (l *Lexer) NextToken() token {
 	}
 	// TODO
 	// fmt.Println(tok)
-	l.readChar()
+	l.readRune()
 	return tok
 }
 
-// readChar reads and advances to next rune
+// readRune reads and advances to next rune
 // Store rune in ch, add width to readPosition and set position to
 // the old readposition on EOF or invalid set ch to 0
-func (l *Lexer) readChar() {
+func (l *Lexer) readRune() {
 	newRune, byteWidth, err := l.reader.ReadRune()
 	if err != nil {
 		l.ch = 0
@@ -100,23 +100,17 @@ func (l *Lexer) readChar() {
 	l.readPosition += byteWidth
 }
 
-// newToken is a little helper to make a token based on
-// tokentype and literal
-func newToken(tokenType tokenType, literal string, line int) token {
-	return token{Type: tokenType, Literal: literal, Line: line}
-}
-
 // readString reads a string until '"' with no preceding \ escape
 func (l *Lexer) readString() (string, error) {
 	var res []rune
-	l.readChar() // advance to first char in string
+	l.readRune() // advance to first char in string
 
 	for l.ch != '"' {
 		if l.ch == '\n' {
 			return "", fmt.Errorf("real newline in string")
 		}
 		if l.ch == '\\' {
-			l.readChar() // read one more to see what is escaped
+			l.readRune() // read one more to see what is escaped
 			switch l.ch {
 			case '"':
 				res = append(res, l.ch)
@@ -135,38 +129,28 @@ func (l *Lexer) readString() (string, error) {
 			case 'f':
 				res = append(res, '\f')
 			case 'u':
-				literal, err := l.readUnicodeString()
+				code, err := l.readFourHexDigits()
 				if err != nil {
 					return "", fmt.Errorf("invalid unicode string")
 				}
-				res = append(res, literal)
-				// TODO handle unicode code point stuff
+				// check for high surrogate, in that case check for '\u' read low surrogate and combine them
+				if isHighSurrogate(code) {
+					code, err = l.combineHighAndLowSurrogate(code)
+					if err != nil {
+						return "", fmt.Errorf("invalid low surrogate unicode string")
+					}
+				}
+				res = append(res, code)
 			default:
 				return "", fmt.Errorf("unknown escape sequence")
 			}
 		} else {
 			res = append(res, l.ch)
 		}
-		l.readChar()
+		l.readRune()
 	}
 
 	return string(res), nil
-}
-
-func (l *Lexer) skipWhitespace() {
-	for unicode.IsSpace(l.ch) {
-		if l.ch == '\n' {
-			l.line++
-		}
-		l.readChar()
-	}
-}
-
-func isDigit(ch rune) bool {
-	if ch >= '0' && ch <= '9' {
-		return true
-	}
-	return false
 }
 
 func (l *Lexer) readNumber() string {
@@ -175,7 +159,7 @@ func (l *Lexer) readNumber() string {
 	// if first ch is - that's ok, a negative number
 	if l.ch == '-' {
 		res = append(res, l.ch)
-		l.readChar()
+		l.readRune()
 	}
 
 	// if 1st ch is 0 and it's followed by a number , thats illegal
@@ -188,19 +172,18 @@ func (l *Lexer) readNumber() string {
 		switch {
 		case isDigit(l.ch), l.ch == '.':
 			res = append(res, l.ch)
-			l.readChar()
+			l.readRune()
 		case unicode.ToLower(l.ch) == 'e':
 			res = append(res, l.ch)
-			l.readChar()
+			l.readRune()
 			// '-' is allowed if it follows and e exponent
 			if l.ch == '-' {
 				res = append(res, l.ch)
-				l.readChar()
+				l.readRune()
 			}
-		case unicode.IsLetter(l.ch), l.ch == '_':
-			return ""
 		// These are the only ways to end a number, i guess? not sure...
-		case l.ch == '}' || l.ch == ']' || l.ch == ',' || l.peekRune() == 0:
+		case l.ch == '}' || l.ch == ']' || l.ch == ',' || l.ch == ' ' || l.peekRune() == 0:
+			// number is not allowed to end with a '.'
 			if res[len(res)-1] == '.' {
 				return ""
 			}
@@ -221,13 +204,57 @@ func (l *Lexer) readIdentifier() string {
 
 	for unicode.IsLower(l.ch) {
 		res = append(res, l.ch)
-		l.readChar()
+		l.readRune()
 	}
 	// exiting loop when l.ch is not lowercase char
 	// we need to unread one rune to handle it properly
 	l.reader.UnreadRune()
 	// TODO will this be a bug somehow?
 	return string(res)
+}
+
+// readFourHexDigits() reads 4 unicode hex digits
+// TODO need to check for high surrogate to support more emojis and chars
+func (l *Lexer) readFourHexDigits() (rune, error) {
+	var res []rune
+
+	for range 4 {
+		l.readRune() // advance from 'u' to first of four hex digits
+		ch := unicode.ToLower(l.ch)
+		if isDigit(ch) || (ch >= 'a' && ch <= 'f') {
+			res = append(res, l.ch)
+		} else {
+			return 0, fmt.Errorf("invalid unicode string")
+		}
+	}
+
+	code, err := strconv.ParseUint(string(res), 16, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid unicode string")
+	}
+	return rune(code), nil
+}
+
+// Helper funcs:
+
+func isHighSurrogate(r rune) bool {
+	return r >= 0xD800 && r <= 0xDBFF
+}
+
+func (l *Lexer) skipWhitespace() {
+	for unicode.IsSpace(l.ch) {
+		if l.ch == '\n' {
+			l.line++
+		}
+		l.readRune()
+	}
+}
+
+func isDigit(ch rune) bool {
+	if ch >= '0' && ch <= '9' {
+		return true
+	}
+	return false
 }
 
 // reads a rune and immediately unreads it. returns the read rune
@@ -240,23 +267,17 @@ func (l *Lexer) peekRune() rune {
 	return r
 }
 
-func (l *Lexer) readUnicodeString() (rune, error) {
-	var res []rune
-	var r rune
+func (l *Lexer) combineHighAndLowSurrogate(code rune) (rune, error) {
 
-	for range 4 {
-		l.readChar()
-		ch := unicode.ToLower(l.ch)
-		if isDigit(ch) || (ch >= 'a' && ch <= 'f') {
-			res = append(res, ch)
-		} else {
-			return r, fmt.Errorf("invalid unicode string")
+	l.readRune() // advance to possible '\'
+	if l.ch == '\\' && l.peekRune() == 'u' {
+		l.readRune() // advance to 'u'
+		low, err := l.readFourHexDigits()
+		if err != nil {
+			return 0, fmt.Errorf("invalid unicode string")
 		}
+		// combine into a single rune
+		code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
 	}
-
-	code, err := strconv.ParseUint(string(res), 16, 32)
-	if err != nil {
-		return r, fmt.Errorf("invalid unicode string")
-	}
-	return rune(code), nil
+	return code, nil
 }
