@@ -50,3 +50,13 @@ if !ok {
 // node wasn't an object, handle
 }
 ```
+
+### About data types
+
+- **Scalar types:** A single indivisable (atomic) value, like a String, Number or Bool. YAML has more scalar types than JSON.
+- **Sequences:** List
+- **Mappings:** Key-val, Object/dict/map
+
+### About YAML
+
+- YAML is a superset of JSON, so all JSON is actually valid YAML. It adds !!timestamp, !!binary, !!set and !!omap (ordered map) as additional types.
