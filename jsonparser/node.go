@@ -1,28 +1,11 @@
 package jsonparser
 
-// interface{} basically means that any go type satisfies this automatically
-type Node interface{}
+import "github.com/boxy-pug/parsifal/ast"
 
-// Json types that satisfy Node interface
-
-type Object struct {
-	Pairs map[string]Node
-}
-
-type Array struct {
-	Elements []Node
-}
-
-type String struct {
-	Value string
-}
-
-type Number struct {
-	Value float64
-}
-
-type Bool struct {
-	Value bool
-}
-
-type Null struct{}
+type Node = ast.Node
+type Object = ast.Object
+type Array = ast.Array
+type String = ast.String
+type Number = ast.Number
+type Bool = ast.Bool
+type Null = ast.Null
