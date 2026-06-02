@@ -60,3 +60,11 @@ if !ok {
 ### About YAML
 
 - YAML is a superset of JSON, so all JSON is actually valid YAML. It adds !!timestamp, !!binary, !!set and !!omap (ordered map) as additional types.
+- YAML has two modes: **block style** (indentation-based, like Python) and **flow style** (brace/bracket-based, like JSON). They can be mixed freely.
+- Block style is fundamentally line-oriented. Structure is carried by indentation and newlines, not explicit delimiters like `{}`.
+- Indentation uses spaces only (tabs are forbidden). No fixed width per level — any number of spaces works as long as it's consistent within a block. Different blocks can use different widths.
+- The lexer emits **INDENT/DEDENT** tokens based on an indent stack that tracks actual column positions (not level numbers). When a line is more indented, emit INDENT. When less indented, pop the stack and emit DEDENT for each level closed.
+- YAML lexing is coarser than JSON. The lexer emits `SCALAR` for all values (quoted or unquoted) and lets the parser resolve types (string, number, bool, null) during parsing. This is because YAML scalar resolution is contextual — the same word can mean different things depending on position.
+- `DASH` is a standalone token for block sequence entries (`- item`). It signals "start of a sequence entry" but unlike JSON's `[`, there's no closing token — the sequence ends when indentation decreases.
+- Flow style (`{}` and `[]`) can reuse JSON-like tokenization. Block style needs the indent stack. The parser switches between modes.
+- Shared `ast/` package holds node types used by all parsers. Each node has a `Tag string` field for YAML type annotations (empty for JSON/TOML).
